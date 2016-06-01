@@ -23,24 +23,46 @@
 package main
 
 import (
-  "net/http"
-  "os"
-  "fmt"
+	"flag"
+	"fmt"
+	"net/http"
+	"os"
 )
 
+var port int
+var in string
+var dir string
+var servepath string
 var portMin = 8000
 var portMax = 8999
 
+func init() {
+	flag.IntVar(&port, "p", 0, "Port to listen on (default: 0, look for free port)")
+	flag.StringVar(&in, "i", "0.0.0.0", "Interface to listen on (default: 0.0.0.0)")
+	flag.StringVar(&dir, "d", "", "Directory to serve (default: cwd)")
+	flag.IntVar(&portMin, "minport", 8000, "Minimum port to try binding to")
+	flag.IntVar(&portMax, "maxport", 8999, "Maximum port to try binding to")
+}
+
 func main() {
-  here, _ := os.Getwd()
-  fmt.Println("[servest]")
-  fmt.Println("https://github.com/aerth/servest")
-  fmt.Printf("\nLooking for an available port between %d and %d \n", portMin, portMax)
-
-  for port := portMin; port <= portMax; port++ {
-  		fmt.Printf("Port: %d.\n", port)
-  		fmt.Println(http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", port), http.FileServer(http.Dir(here))))
-  		//fmt.Printf("Port %d unavailable.\n\n", port)
-  		}
-
+	flag.Parse()
+	if dir != "" {
+		servepath = dir
+	} else {
+		servepath, _ = os.Getwd()
+	}
+	fmt.Println("[servest]")
+	fmt.Println("https://github.com/aerth/servest")
+	if port != 0 {
+		fmt.Printf("\nServing %s on %s:%d\n", servepath, in, port)
+		fmt.Println(http.ListenAndServe(fmt.Sprintf("%s:%d", in, port), http.FileServer(http.Dir(servepath))))
+		os.Exit(1)
+	}
+	fmt.Printf("\nServing %s on %s\n", servepath, in)
+	fmt.Printf("\nLooking for an available port between %d and %d \n", portMin, portMax)
+	for port := portMin; port <= portMax; port++ {
+		fmt.Printf("Port: %d.\n", port)
+		fmt.Println(http.ListenAndServe(fmt.Sprintf("%s:%d", in, port), http.FileServer(http.Dir(servepath))))
+	}
+	os.Exit(1)
 }
