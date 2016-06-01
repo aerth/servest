@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// Servest is a quick http server with a few options
 package main
 
 import (
@@ -46,21 +47,29 @@ func init() {
 
 func main() {
 	flag.Parse()
+	fmt.Println("[servest]")
+	fmt.Println("https://github.com/aerth/servest")
+
+	// User defined a directory to serve
 	if dir != "" {
 		servepath = dir
 	} else {
+		// Else we serve current working directory
 		servepath, _ = os.Getwd()
 	}
-	fmt.Println("[servest]")
-	fmt.Println("https://github.com/aerth/servest")
+
+	// User defined a port for binding
 	if port != 0 {
 		fmt.Printf("\nServing %s on %s:%d\n", servepath, in, port)
 		fmt.Println(http.ListenAndServe(fmt.Sprintf("%s:%d", in, port), http.FileServer(http.Dir(servepath))))
 		os.Exit(1)
 	}
+
 	fmt.Printf("\nServing %s on %s\n", servepath, in)
 	fmt.Printf("\nLooking for an available port between %d and %d \n", portMin, portMax)
+	// Here we search for an open port within the boundries of portMin and portMax.
 	for port := portMin; port <= portMax; port++ {
+		// We print the port we are *trying* to bind to, if it isn't possible we keep trying different ports.
 		fmt.Printf("Port: %d.\n", port)
 		fmt.Println(http.ListenAndServe(fmt.Sprintf("%s:%d", in, port), http.FileServer(http.Dir(servepath))))
 	}
