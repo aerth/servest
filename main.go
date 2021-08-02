@@ -29,18 +29,20 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
 var (
-	port      int
-	in        string
-	dir       string
-	servepath string
-	portMin   = 8000
-	portMax   = 8999
-	logging   = false // to stderr
+	port       int
+	in         string
+	dir1       string
+	servepath  string
+	portMin    = 8000
+	portMax    = 8999
+	logging    = false // to stderr
+	singlePage = false
 )
 
 const (
@@ -56,10 +58,11 @@ var (
 func init() {
 	flag.IntVar(&port, "p", 0, "Port to listen on (default: 0, look for free port)")
 	flag.StringVar(&in, "i", DefaultBind, "Interface to listen on")
-	flag.StringVar(&dir, "d", DefaultDir, "Directory to serve (current working dir if empty)")
+	flag.StringVar(&dir1, "d", DefaultDir, "Directory to serve (current working dir if empty)")
 	flag.IntVar(&portMin, "minport", 8000, "Minimum port to try binding to")
 	flag.IntVar(&portMax, "maxport", 8999, "Maximum port to try binding to")
 	flag.BoolVar(&logging, "log", false, "Enable http request logging")
+	flag.BoolVar(&singlePage, "single", false, "Single page mode (404s with no ext serve index.html)")
 }
 
 func main() {
@@ -79,8 +82,8 @@ func main() {
 	t1 := time.Now()
 
 	// User defined a directory to serve
-	if dir != "" {
-		servepath = dir
+	if dir1 != "" {
+		servepath = dir1
 	} else {
 		// Else we serve current working directory (if possible)
 		var err error
@@ -92,10 +95,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "[servest] serving current working dir:", servepath)
 	}
 
+	webhandler := wrapHandler{servepath}
 	// User defined a port for binding
 	if port != 0 {
 		fmt.Fprintf(os.Stderr, "[servest] serving %s on %s:%d\n", servepath, in, port)
-		fmt.Fprintln(os.Stderr, http.ListenAndServe(fmt.Sprintf("%s:%d", in, port), http.FileServer(http.Dir(servepath))))
+		fmt.Fprintln(os.Stderr, http.ListenAndServe(fmt.Sprintf("%s:%d", in, port),
+			webhandler))
+
 		os.Exit(1)
 	}
 
@@ -108,7 +114,9 @@ func main() {
 			<-time.After(time.Second)
 			fmt.Fprintf(os.Stderr, "[servest] listening on port: %d.\n", port)
 		}()
-		err := http.ListenAndServe(fmt.Sprintf("%s:%d", in, port), wrapHandler{http.FileServer(http.Dir(servepath))})
+		err := http.ListenAndServe(fmt.Sprintf("%s:%d", in, port),
+			webhandler,
+		)
 		if !strings.Contains(err.Error(), "already in use") {
 			fmt.Fprintln(os.Stderr, "[servest] error:", err)
 			if time.Since(t1) < time.Second*3 {
@@ -121,7 +129,7 @@ func main() {
 }
 
 type wrapHandler struct {
-	underlyingHandler http.Handler
+	dir string
 }
 
 func trimPort(s string) string {
@@ -134,8 +142,28 @@ func trimPort(s string) string {
 
 func (www wrapHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// insert any routers or www middleware handlers you need here?
+
+	p := filepath.Join(www.dir, filepath.Clean(r.URL.Path))
 	if logging {
-		fmt.Fprintf(os.Stderr, "[servest] %s %s %s %s %s - %s %s\n", time.Now().Format(time.ANSIC), r.Method, r.Host, r.URL.Path, r.URL.RawPath, trimPort(r.RemoteAddr), r.UserAgent())
+		fmt.Fprintf(os.Stderr, "[servest] %s %s %s %s %s - %s %s (file=%s)\n", time.Now().Format(time.ANSIC), r.Method, r.Host, r.URL.Path, r.URL.RawPath, trimPort(r.RemoteAddr), r.UserAgent(), p)
 	}
-	www.underlyingHandler.ServeHTTP(w, r)
+
+	if strings.HasSuffix(r.URL.Path, ".css") {
+		w.Header().Set("Content-Type", "text/css")
+	} else if strings.HasSuffix(r.URL.Path, ".js") {
+		w.Header().Set("Content-Type", "text/javascript")
+	}
+
+	// SPA chunk from github.com/roberthodgen/spa-server
+	if info, err := os.Stat(p); err != nil {
+		http.ServeFile(w, r, filepath.Join(www.dir, "index.html"))
+		return
+	} else if info.IsDir() {
+		http.ServeFile(w, r, filepath.Join(www.dir, "index.html"))
+		return
+	}
+	http.ServeFile(w, r, p)
+
+	// unused now
+	//www.underlyingHandler.ServeHTTP(w, r)
 }
