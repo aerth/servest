@@ -3,7 +3,7 @@
 [![Latest Tag](https://img.shields.io/github/v/tag/aerth/servest)](https://github.com/aerth/servest)
 [![Go Report Card](https://goreportcard.com/badge/github.com/aerth/servest)](https://goreportcard.com/report/github.com/aerth/servest)
 [![Docs](https://pkg.go.dev/badge/github.com/aerth/servest)](https://pkg.go.dev/github.com/aerth/servest)
-[![License](https://img.shields.io/github/license/aerth/servest)](
+[![License](https://img.shields.io/github/license/aerth/servest)](https://github.com/aerth/servest/blob/master/LICENSE.md)
 
 Lightweight and easy-to-configure http fileserver
 
