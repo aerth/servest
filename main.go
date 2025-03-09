@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,20 +50,31 @@ const (
 	repolink = "https://github.com/aerth/servest"
 )
 
-var (
-	Version     = "0.2.x-unknown"
-	DefaultDir  string // cwd if empty
-	DefaultBind = "127.0.0.1"
+var ( // these are modified by Makefile
+	Version            = "0.3.x-unknown"
+	DefaultDir  string = "" // directory if no -d flag
+	DefaultBind        = "127.0.0.1"
 )
 
 func init() {
 	flag.IntVar(&port, "p", 0, "Port to listen on (default: 0, look for free port)")
-	flag.StringVar(&in, "i", DefaultBind, "Interface to listen on")
-	flag.StringVar(&dir1, "d", DefaultDir, "Directory to serve (current working dir if empty)")
+	flag.StringVar(&in, "i", DefaultBind, "Interface to listen on, default "+DefaultBind)
+	flag.StringVar(&dir1, "d", DefaultDir, "Directory to serve (if empty: public-html, or current working dir)")
 	flag.IntVar(&portMin, "minport", 8000, "Minimum port to try binding to")
 	flag.IntVar(&portMax, "maxport", 8999, "Maximum port to try binding to")
 	flag.BoolVar(&logging, "log", false, "Enable http request logging")
-	flag.BoolVar(&singlePage, "single", false, "Single page mode (404s with no ext serve index.html)")
+	flag.BoolVar(&singlePage, "single", false, "Single page mode (see below)")
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "servest v%s\n", Version)
+		fmt.Fprintf(os.Stderr, "Source: %s\n", repolink)
+		fmt.Fprintf(os.Stderr, "Usage: servest [flags]\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nExample:\n\tservest -log -i 127.0.0.1 -p 8080 -d /var/www/html\n")
+		fmt.Fprintf(os.Stderr, "Run without installing:\n\tgo run -v github.com/aerth/servest@latest -d /some/dir\n")
+		fmt.Fprintf(os.Stderr, "Serve current directory:\n\tservest\n")
+
+		fmt.Fprintf(os.Stderr, "\nSingle page mode: will serve index.html for all requests that do not match an existing file. The subdirectory may contain an index.html, and that will be served if nonzero size. \n")
+	}
 }
 
 func main() {
@@ -80,10 +92,25 @@ func main() {
 	fmt.Fprintln(os.Stderr, "[servest] starting...")
 	fmt.Fprintln(os.Stderr, "[servest] source code: https://github.com/aerth/servest")
 	t1 := time.Now()
-
+	var err error
 	// User defined a directory to serve
 	if dir1 != "" {
 		servepath = dir1
+		servepath, err = filepath.Abs(servepath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[servest] fatal: abs %v", err)
+			os.Exit(222)
+		}
+		fmt.Fprintf(os.Stderr, "[servest] serving %s directory\n", servepath)
+	} else if _, err = os.Stat("public-html"); err == nil {
+		// Else we serve public-html directory
+		servepath = "public-html"
+		servepath, err = filepath.Abs(servepath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[servest] fatal: abs %v", err)
+			os.Exit(222)
+		}
+		fmt.Fprintf(os.Stderr, "[servest] serving %s directory\n", servepath)
 	} else {
 		// Else we serve current working directory (if possible)
 		var err error
@@ -141,31 +168,104 @@ func trimPort(s string) string {
 }
 
 func (www wrapHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// insert any routers or www middleware handlers you need here?
-
-	p := filepath.Join(www.dir, filepath.Clean(r.URL.Path))
-	if logging {
-		fmt.Fprintf(os.Stderr, "[servest] %s %s %s %s %s - %s %s (file=%s)\n", time.Now().Format(time.ANSIC), r.Method, r.Host, r.URL.Path, r.URL.RawPath, trimPort(r.RemoteAddr), r.UserAgent(), p)
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.WriteHeader(http.StatusOK)
+		return
 	}
-
-	if strings.HasSuffix(r.URL.Path, ".css") {
-		w.Header().Set("Content-Type", "text/css")
-	} else if strings.HasSuffix(r.URL.Path, ".js") {
-		w.Header().Set("Content-Type", "text/javascript")
-	} else if strings.HasSuffix(r.URL.Path, ".html") {
-		w.Header().Set("Content-Type", "text/html")
-	} else if strings.HasSuffix(r.URL.Path, ".json") {
-		w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "405 Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	// get file 	extension
+	urlPath, err := url.PathUnescape(r.URL.Path)
+	if err != nil {
+		http.Error(w, "400 Bad Request", http.StatusBadRequest)
+		return
+	}
+	if strings.Contains(urlPath, "..") {
+		http.Error(w, "403 Forbidden", http.StatusForbidden)
+		return
+	}
+	if urlPath == "/favicon.ico" {
+		http.ServeFile(w, r, filepath.Join(www.dir, "favicon.ico"))
+		return
+	}
+	if urlPath == "/" {
+		urlPath = "/index.html"
+	}
+	ext := filepath.Ext(urlPath)
+	if len(ext) > 10 { // indicates some/.hidden/file (like a git dir)
+		http.Error(w, "404 page not found", http.StatusNotFound)
+		return
+	}
+	p := filepath.Join(www.dir, filepath.Clean(urlPath))
+	if logging {
+		fmt.Fprintf(os.Stderr, "[servest] %s %s %s %s %s - %s %s (file=%s)\n",
+			time.Now().Format(time.ANSIC), r.Method, r.Host, urlPath, r.URL.RawPath, trimPort(r.RemoteAddr), r.UserAgent(), p)
+	}
+	if !strings.HasPrefix(p, www.dir) {
+		http.Error(w, "403 Forbidden", http.StatusForbidden)
+		return
 	}
 
 	// SPA chunk modified from github.com/roberthodgen/spa-server
-	if info, err := os.Stat(p); err != nil {
+
+	// p is the absolute path of the requested HTTP path
+	println("p: ", p)
+	stat, err := os.Lstat(p)
+	doesntexist := os.IsNotExist(err)
+	isdir := err == nil && stat.IsDir()
+	if singlePage && isdir {
+		println("isdir", p)
+		p = filepath.Join(p, "index.html")
+		println("trying", p)
+		stat, err = os.Lstat(p) // recheck /foo/index.html
+		if err == nil && stat.Size() > 8 {
+			println("index.html exists", p)
+			http.ServeFile(w, r, p)
+			return
+		}
+	}
+	if singlePage && err != nil {
+		p = filepath.Join(www.dir, "index.html")
+	}
+	if doesntexist {
 		http.ServeFile(w, r, filepath.Join(www.dir, "index.html"))
 		return
-	} else if info.IsDir() {
+	} else if isdir {
 		http.ServeFile(w, r, filepath.Join(www.dir, "index.html"))
+		return
+	} else if !stat.Mode().IsRegular() {
+		http.Error(w, "404 page not found", http.StatusNotFound)
 		return
 	}
+
+	switch strings.ToLower(ext) {
+	case ".css":
+		w.Header().Set("Content-Type", "text/css")
+	case ".js":
+		w.Header().Set("Content-Type", "text/javascript")
+	case ".html":
+		w.Header().Set("Content-Type", "text/html")
+	case ".json":
+		w.Header().Set("Content-Type", "application/json")
+	case ".png":
+		w.Header().Set("Content-Type", "image/png")
+	case ".jpg", ".jpeg":
+		w.Header().Set("Content-Type", "image/jpeg")
+	case ".gif":
+		w.Header().Set("Content-Type", "image/gif")
+	case ".svg":
+		w.Header().Set("Content-Type", "image/svg+xml")
+	case ".ico":
+		w.Header().Set("Content-Type", "image/x-icon")
+	case ".webp":
+		w.Header().Set("Content-Type", "image/webp")
+	}
+	fmt.Printf("serving %s\n", p)
 	http.ServeFile(w, r, p)
 
 	// unused now
