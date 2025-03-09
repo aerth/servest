@@ -52,7 +52,7 @@ const (
 
 var ( // these are modified by Makefile
 	Version            = "0.3.x-unknown"
-	DefaultDir  string = "" // directory if no -d flag
+	DefaultDir  string = "" // directory if no -d flag, if this is empty the cwd is used
 	DefaultBind        = "127.0.0.1"
 )
 
@@ -94,23 +94,18 @@ func main() {
 	t1 := time.Now()
 	var err error
 	// User defined a directory to serve
+	if dir1 == "" {
+		dir1 = DefaultDir
+	}
 	if dir1 != "" {
 		servepath = dir1
-		servepath, err = filepath.Abs(servepath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[servest] fatal: abs %v", err)
-			os.Exit(222)
-		}
-		fmt.Fprintf(os.Stderr, "[servest] serving %s directory\n", servepath)
 	} else if _, err = os.Stat("public-html"); err == nil {
 		// Else we serve public-html directory
-		servepath = "public-html"
-		servepath, err = filepath.Abs(servepath)
+		servepath, err = filepath.Abs("./public-html")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[servest] fatal: abs %v", err)
 			os.Exit(222)
 		}
-		fmt.Fprintf(os.Stderr, "[servest] serving %s directory\n", servepath)
 	} else {
 		// Else we serve current working directory (if possible)
 		var err error
@@ -122,13 +117,17 @@ func main() {
 		fmt.Fprintln(os.Stderr, "[servest] serving current working dir:", servepath)
 	}
 
+	servepath, err = filepath.Abs(servepath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[servest] fatal: abs %v", err)
+		os.Exit(222)
+	}
 	webhandler := wrapHandler{servepath}
 	// User defined a port for binding
 	if port != 0 {
 		fmt.Fprintf(os.Stderr, "[servest] serving %s on %s:%d\n", servepath, in, port)
 		fmt.Fprintln(os.Stderr, http.ListenAndServe(fmt.Sprintf("%s:%d", in, port),
 			webhandler))
-
 		os.Exit(1)
 	}
 
@@ -137,13 +136,12 @@ func main() {
 	// Here we search for an open port within the boundries of portMin and portMax.
 	for port := portMin; port <= portMax; port++ {
 		// We print the port we are *trying* to bind to, if it isn't possible we keep trying different ports.
+		listenstr := fmt.Sprintf("%s:%d", in, port)
 		go func() {
 			<-time.After(time.Second)
-			fmt.Fprintf(os.Stderr, "[servest] listening on port: %d.\n", port)
+			fmt.Fprintf(os.Stderr, "[servest] listening on %s\n", listenstr)
 		}()
-		err := http.ListenAndServe(fmt.Sprintf("%s:%d", in, port),
-			webhandler,
-		)
+		err := http.ListenAndServe(listenstr, webhandler)
 		if !strings.Contains(err.Error(), "already in use") {
 			fmt.Fprintln(os.Stderr, "[servest] error:", err)
 			if time.Since(t1) < time.Second*3 {
@@ -152,6 +150,7 @@ func main() {
 			os.Exit(111)
 		}
 	}
+	fmt.Fprintln(os.Stderr, "[servest] error: no available ports found")
 	os.Exit(1)
 }
 
