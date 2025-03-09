@@ -152,9 +152,13 @@ func (www wrapHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/css")
 	} else if strings.HasSuffix(r.URL.Path, ".js") {
 		w.Header().Set("Content-Type", "text/javascript")
+	} else if strings.HasSuffix(r.URL.Path, ".html") {
+		w.Header().Set("Content-Type", "text/html")
+	} else if strings.HasSuffix(r.URL.Path, ".json") {
+		w.Header().Set("Content-Type", "application/json")
 	}
 
-	// SPA chunk from github.com/roberthodgen/spa-server
+	// SPA chunk modified from github.com/roberthodgen/spa-server
 	if info, err := os.Stat(p); err != nil {
 		http.ServeFile(w, r, filepath.Join(www.dir, "index.html"))
 		return
