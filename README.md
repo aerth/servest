@@ -18,13 +18,13 @@ With `-single` flag, `servest` will serve /index.html, or /{path}/index.html if 
 See Makefile for build customization, such as default directory and default bind address
 
 ```
-servest v0.3.x-unknown
+servest v1.0.1
 Source: https://github.com/aerth/servest
 Usage: servest [flags]
   -d string
         Directory to serve (if empty: public-html, or current working dir)
   -i string
-        Interface to listen on, default 127.0.0.1 (default "127.0.0.1")
+        Interface to listen on, default 0.0.0.0 (default "0.0.0.0")
   -log
         Enable http request logging
   -maxport int
@@ -45,7 +45,7 @@ Run without installing:
 Serve current directory:
         servest
 
-Single page mode: will serve index.html for all requests that do not match an existing file. The subdirectory may contain an index.html, and that will be served if nonzero size.
+Single page mode: will serve index.html for all requests that do not match an existing file. The subdirectory may contain an index.html, and that will be served if nonzero size. 
 ```
 
 TODO:
